@@ -1,0 +1,223 @@
+import pandas as pd
+import copy
+
+# Cat = e.g. Jet_mode, t_R, or some sub-category of t_R
+
+RadAGN = (t_R_full['AGN_final'] == 1) #short for Radiative
+NotRadAGN = (t_R_full['AGN_final'] == 0)
+
+RadioAGN = (t_R_full['RadioAGN_final'] == 1)
+NotRadioAGN = (t_R_full['RadioAGN_final'] == 0)
+
+SFG = (NotRadAGN * NotRadioAGN)
+Radio_quiet = (RadAGN * NotRadioAGN)
+Jet_mode = (NotRadAGN * RadioAGN)
+Quasar_mode = (RadAGN * RadioAGN)
+
+
+
+
+def draw_bins(cat): # data Catalogue, spec_dat['spectrum']
+
+    spec_dat_temp = spec_dat.copy() # so that the changes done by draw_bins do not change spec_dat
+    
+    global bin_dic
+    bin_dic = [] # bin dictionary, which will contain data from each bin
+
+    bin_index = 0 # counter, adds one every time a new bin is made
+    
+    Label = input('Would you like to label the bins?: (Y/N)')
+    while Label not in ['Y','y','N','n']:
+        Label = input("Label bins? (Y/N):") # asks again if answer is not satisfactory
+            
+    
+    spec = input('What part of the X-ray spectrum? (Broad, soft, hard):')
+    
+    if spec in ['Broad','broad','B','b']:
+        sd = spec_dat_temp[0].copy()
+        
+        sd.pop('data') # empties any previous filtering on spec_dat, ensures a good filter
+        sd['data'] = spec_dat[0]['data'].copy() # makes a copy of the data inside spec_dat[0]
+    
+    if spec in ['Soft','soft','S','s']:
+        sd = spec_dat_temp[1].copy()
+        
+        sd.pop('data') 
+        sd['data'] = spec_dat[1]['data'].copy() # makes a copy of the data inside spec_dat[1]
+    
+    if spec in ['Hard','hard','H','h']:
+        sd = spec_dat_temp[2].copy()
+        
+        sd.pop('data')
+        sd['data'] = spec_dat[2]['data'].copy() # makes a copy of the data inside spec_dat[2]
+    
+    
+    if sd['Filter']=='Full': # If no filter has yet been applied to the spectrum data
+    
+        answer = ""
+        while answer not in ['Y','y','N','n']:
+            answer = input("Apply filter? (Y/N):") # asks again if answer is not satisfactory
+
+        if answer in ['Y','y']: # Define and apply filter AGN_class
+            #Filter = True
+            mask = input("What group of sources would you like to filter out?(SFG, Radio_quiet, Jet_mode, Quasar_mode):")
+
+            #SFG = t_R_full[NotRadAGN * NotRadioAGN]
+            #Radio_quiet = t_R_full[RadAGN * NotRadioAGN]
+            #Jet_mode = t_R_full[NotRadAGN * RadioAGN]
+            #Quasar_mode = t_R_full[RadAGN * RadioAGN]
+
+            if mask in ['SFG','sfg','SFGs','sfgs']:
+                AGN_class = SFG
+
+            elif mask in ['Radio_quiet', 'radio_quiet','RQ', 'rq']:
+                AGN_class = Radio_quiet
+
+            elif mask in ['Jet_mode','jet_mode','JM','jm']:
+                AGN_class = Jet_mode
+
+            elif mask in ['Quasar_mode','quasar_mode','QM','qm']:
+                AGN_class = Quasar_mode
+
+        else: # If we do not want to filter at all
+            #Filter = False
+            mask = "Full"
+            AGN_class = np.ones(np.size(t_R_full), dtype=bool) # mask full of True values
+
+    
+        #print(AGN_class[0])
+        #sd['data'] = sd['data'][AGN_class] # filters and overwrites the spectrum data
+       
+
+    else: # if Filter is not 'Full', the data has been filtered already:
+        AGN_class = sd['Class'] # it has been previously defined!
+        print('The data has already been filtered into the '+ str(sd['Filter'] +' class'))
+        
+        
+    
+    logLbins = np.array([22.0,23,24,24.5,25,25.5,26,27,28,29])
+    # find the z value where these L are found along l_lim
+
+    ztest = np.arange(0.01,6.0,0.01) # many steps along the z axis
+    
+    l_lim = np.log10((4*np.pi*(cosmo.luminosity_distance(ztest))**2 *  10**(-3.6)*u.jansky).to(u.W/u.Hz).value)
+    
+    plt.figure(1)
+    plt.plot(ztest,l_lim,'k-')
+    plt.legend(['0.25mJy flux limit model'], loc=4)
+    plt.xlabel('Redshift z')
+    plt.ylabel('Log10(Radio Luminosity at 1.4GHz [W/Hz])')
+    
+    zbins = np.interp(logLbins,l_lim,ztest)
+    # produces a list of the points where: as ztest increases, l_lim == logLbins is True
+    
+    # z_values = np.zeros()
+    fx_mean_stack = np.zeros( (np.size(zbins)-1,np.size(logLbins)-1) )
+    fx_median_stack = np.zeros( (np.size(zbins)-1,np.size(logLbins)-1) )
+    fx_mean_stack_error = np.zeros( (np.size(zbins)-1,np.size(logLbins)-1) )
+    fx_median_stack_error = np.zeros( (np.size(zbins)-1,np.size(logLbins)-1) )
+    z_median = np.zeros( (np.size(zbins)-1,np.size(logLbins)-1) )
+
+    #Lx_mean_stack = fx_mean_stack (4*np.pi*(cosmo.luminosity_distance(z))**2 *  flux*u.jansky).to(u.W/u.Hz)
+    nstack = np.zeros( (np.size(zbins)-1,np.size(logLbins)-1) )
+    snr = np.zeros( (np.size(zbins)-1,np.size(logLbins)-1) )   
+    
+    agn_ind=np.zeros(np.size(cat))
+    agn_ind[AGN_class]=1
+    #print(np.size(AGN_class))
+    
+    for iz,z in enumerate(zbins[0:-1]): # up to the penultimate value of z
+        for il,l in  enumerate(logLbins[0:-1]): # make the bins in each step of z and L
+            
+            #sel = ( # condition upon which bins are drawn
+            #    (cat['Z_BEST'][AGN_class]>zbins[iz]) & (cat['Z_BEST'][AGN_class]<zbins[iz+1]) # z is more than zbins[iz] & less than zbins[iz+1]
+            #      & (cat['L_1400MHz'][AGN_class]>10**logLbins[il]) & (cat['L_1400MHz'][AGN_class]<10**logLbins[il+1]) # L is more than l and less than l+1
+            #        & (np.array(sd['data']['t_expo'])>1000.0) 
+            #) # selection criteria for subset of radio sample
+            sel = ( # condition upon which bins are drawn
+                (cat['Z_BEST']>zbins[iz]) & (cat['Z_BEST']<zbins[iz+1]) # z is more than zbins[iz] & less than zbins[iz+1]
+                  & (cat['L_1400MHz']>10**logLbins[il]) & (cat['L_1400MHz']<10**logLbins[il+1]) # L is more than l and less than l+1
+                    & (np.array(sd['data']['t_expo'])>1000.0) 
+                & AGN_class
+                ) # selection criteria for subset of radio sample
+            
+            selind, = np.where(sel==True) # selection index
+            #print('selind shape ',np.shape(selind))
+            full_bin = (il > iz) # criteria for luminosity completeness: above & left of il=iz, which lies along l_lim
+            #print(iz,il,np.count_nonzero(sel))
+            
+            if (np.count_nonzero(sel)>0) & full_bin: # if there are detected count sources and the bin lies above the line
+                
+                z_median = np.median(cat['Z_BEST'][sel]) # median redshift in the bin
+                tot_cts= np.sum( sd['data']['count_sum'][sel] ) # total counts in the selected bin
+                snr[iz,il] = tot_cts/np.sqrt(tot_cts) # signal to noise ratio
+                
+                if snr[iz,il]>3: # if signal to noise is better than 3, take the mean & median X-ray flux value within the bin
+                    
+                    fx_mean_stack[iz,il] = np.mean(
+                        (sd['data']['count_sum'][sel] - 
+                         np.array(sd['data']['bkg'])[sel]*np.array(sd['data']['n_pix'])[sel]) 
+                            * np.array(sd['data']['ecf'])[sel] / (0.9 * np.array(sd['data']['t_expo'])[sel]))
+                    
+                    
+                    ndraw=50 # number of resamplings to generate bootstrap errors
+                    fdraw=np.zeros(ndraw)
+                    f_med_draw=np.zeros(ndraw)
+
+                    for idraw in range(0,ndraw):
+                        randind = np.random.randint(0,high=np.size(selind),size=np.size(selind))
+                        #print(randind.shape)
+                        selrand = selind[randind]
+                        # makes a random selection of elements from selind, which returns the index of the selected sources
+                        
+                        fdraw[idraw]= np.mean(
+                                 (sd['data']['count_sum'][selrand] - 
+                              np.array(sd['data']['bkg'])[selrand]*np.array(sd['data']['n_pix'])[selrand]) 
+                            * np.array(sd['data']['ecf'])[selrand] / (0.9 * np.array(sd['data']['t_expo'])[selrand]))
+                        # each fdraw is one of the resamples, which number up to ndraw
+                        
+                        f_med_draw[idraw]= np.median(
+                                 (sd['data']['count_sum'][selrand] - 
+                              np.array(sd['data']['bkg'])[selrand]*np.array(sd['data']['n_pix'])[selrand]) 
+                            * np.array(sd['data']['ecf'])[selrand] / (0.9 * np.array(sd['data']['t_expo'])[selrand]))
+                        # each fdraw is one of the resamples, which number up to ndraw
+                    
+                    fx_mean_stack_error[iz,il] = np.std(fdraw)
+                    fx_boot_mean = np.mean(fdraw)
+                    # gives the stddev of the resampling of ndraw resamples, and repeats for every bin [iz,il]
+                    
+                    fx_median_stack[iz,il] = np.median(
+                        (sd['data']['count_sum'][sel] - 
+                         np.array(sd['data']['bkg'])[sel]*np.array(sd['data']['n_pix'])[sel]) 
+                            * np.array(sd['data']['ecf'])[sel] / (0.9 * np.array(sd['data']['t_expo'])[sel])) 
+                    # Now do the same as above for the median error
+                    fx_median_stack_error[iz,il] = np.std(f_med_draw)
+                    fx_boot_median = np.mean(f_med_draw)
+                    
+                nstack[iz,il] =np.count_nonzero(sel) # no. of stacked sources in the bin
+                
+                # make a DataFrame object to store the input variable information in, each of which contains (X,Y) info
+                #dataframe = pd.DataFrame({"cts":sd['cts'],"bkg":sd['bkg'],"ecf":sd['ecf'], "n_pix": sd['n_pix'], "t_expo": sd['t_expo']})
+                
+                # fill the bin_dic object with info about the bin: its index, Class filter, no. of sources, total counts, and mean flux
+                bin_dic.append({'Index':bin_index, 'Class':AGN_class, 
+                                "data":sd['data'][sel],
+                                'nstack':nstack[iz,il], 'tot_cts':tot_cts, 'z_median':z_median,
+                                'flux_avg':fx_mean_stack[iz,il], 'flux_avg_error':fx_mean_stack_error[iz,il],'flux_avg_bootmean':fx_boot_mean,
+                                'flux_med':fx_median_stack[iz,il], 'flux_med_error':fx_median_stack_error[iz,il],'flux_med_bootmean':fx_boot_median})
+                
+                plt.figure(1) # draw the bins
+                plt.plot([zbins[iz],zbins[iz+1]],[logLbins[il],logLbins[il]],'k--')
+                plt.plot([zbins[iz],zbins[iz+1]],[logLbins[il+1],logLbins[il+1]],'k--')
+                plt.plot([zbins[iz],zbins[iz]],[logLbins[il],logLbins[il+1]],'k--')
+                plt.plot([zbins[iz+1],zbins[iz+1]],[logLbins[il],logLbins[il+1]],'k--')
+                
+                if Label in ('Y','y'):
+                    plt.text(zbins[iz], logLbins[il]+0.1, bin_index, color='green', fontsize=10) # label the bins!
+                    
+                bin_index += 1
+    plt.figure(1)
+    plt.plot(zbins,logLbins,'x')
+    plt.title('Bins in L_{1.4GHz} - z space, for the '+ str(mask) +' class')
+    
+    return bin_dic
