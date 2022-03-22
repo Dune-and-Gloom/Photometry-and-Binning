@@ -1,0 +1,285 @@
+%matplotlib inline
+import math
+from astropy.wcs import WCS
+from astropy.io import fits
+from astropy.table import Table, join
+import astropy.units as u
+import numpy as np
+
+rootdir_broad = "//Users//lewis//Desktop//Masters//Data//broad Data"
+rootdir_soft = "//Users//lewis//Desktop//Masters//Data//soft Data"
+rootdir_hard = "//Users//lewis//Desktop//Masters//Data//hard Data"
+
+'''Import the AGN classification data catalogue'''
+fitsfile_AGN_classes = fits.open("//Users//lewis//Desktop//Masters//Data//AGNclasses_Bootes_v1.fits")
+
+'''Import the data files with respective parameter values'''
+fitsfile_broad_img = fits.open(rootdir_broad + "//cdwfs_broad_4reb.fits")
+fitsfile_broad_ecf = fits.open(rootdir_broad + "//cdwfs_broad_ecfmap_4reb.fits")
+fitsfile_broad_bkg = fits.open(rootdir_broad + "//cdwfs_broad_bkgmap_4reb.fits")
+fitsfile_broad_r90 = fits.open(rootdir_broad + "//cdwfs_broad_r90_4reb.fits")
+fitsfile_broad_expo = fits.open(rootdir_broad + "//cdwfs_broad_expomap_4reb.fits")
+
+fitsfile_soft_img = fits.open(rootdir_soft + "//cdwfs_soft_4reb.fits")
+fitsfile_soft_ecf = fits.open(rootdir_soft + "//cdwfs_soft_ecfmap_4reb.fits")
+fitsfile_soft_bkg = fits.open(rootdir_soft + "//cdwfs_soft_bkgmap_4reb.fits")
+fitsfile_soft_r90 = fits.open(rootdir_soft + "//cdwfs_soft_r90_4reb.fits")
+fitsfile_soft_expo = fits.open(rootdir_soft + "//cdwfs_soft_expomap_4reb.fits")
+
+fitsfile_hard_img = fits.open(rootdir_hard + "//cdwfs_hard_4reb.fits")
+fitsfile_hard_ecf = fits.open(rootdir_hard + "//cdwfs_hard_ecfmap_4reb.fits")
+fitsfile_hard_bkg = fits.open(rootdir_hard + "//cdwfs_hard_bkgmap_4reb.fits")
+fitsfile_hard_r90 = fits.open(rootdir_hard + "//cdwfs_hard_r90_4reb.fits")
+fitsfile_hard_expo = fits.open(rootdir_hard + "//cdwfs_hard_expomap_4reb.fits")
+
+rootdir_2 = "//Users//lewis//PycharmProjects//pythonProject1//abcd"
+
+'''Import the Radio data catalogue'''
+fitsfile_R = fits.open(rootdir_2 + "//bootes_final_cross_match_catalogue-v1.0.fits")
+#os.chdir(rootdir) #changes the directory to the specified rootdir
+
+'''Import the X-ray data catalogue'''
+fitsfile_X = fits.open(rootdir_2 + "//XRayBootesData.fits")
+
+
+import matplotlib.pyplot as plt
+from astropy.cosmology import LambdaCDM  #for luminosity distance
+cosmo = LambdaCDM(H0=70, Om0=0.3, Ode0=0.7)
+
+t_X = Table.read(fitsfile_X)
+t_R = Table.read(fitsfile_R)
+t_class = Table.read(fitsfile_AGN_classes)
+
+#t_class[0]
+
+
+# Parse the WCS keywords in the primary HDU
+#hdulist = fits.open(fitsfile_broad_img)
+
+# Print out the "name" of the WCS, as defined in the FITS header
+#print(w.wcs.name)
+
+w = WCS(fitsfile_broad_img[0].header)
+print(w)
+
+expo = WCS(fitsfile_broad_expo[0].header)
+print(expo)
+
+
+#take in the world coords from t_R, to be converted into pixel (X,Y)
+worldcrd = np.array([t_R['RA'],t_R['DEC']]).T 
+
+Y, X = np.array(w.wcs_world2pix(worldcrd, 1), dtype='int').T
+print(X,Y)
+
+plt.plot(X,Y,'b.')
+plt.xlabel('X')
+plt.ylabel('Y')
+plt.show()
+
+'''C_rate = (Counts - n_pix*bkg)/(0.9*t_expo)''' # Flux = C_rate * ECF
+
+
+import photutils
+from photutils.aperture import SkyCircularAperture
+from astropy.coordinates import SkyCoord
+from photutils.aperture import aperture_photometry
+from astropy.wcs import WCS
+import pandas as pd
+
+
+for direct in ['broad', 'soft', 'hard']:
+            
+    img_file = fits.open("//Users//lewis//Desktop//Masters//Data//{} Data//cdwfs_{}_4reb.fits".format(direct, direct))
+    ecf_file = fits.open("//Users//lewis//Desktop//Masters//Data//{} Data//cdwfs_{}_ecfmap_4reb.fits".format(direct, direct))
+    bkg_file = fits.open("//Users//lewis//Desktop//Masters//Data//{} Data//cdwfs_{}_bkgmap_4reb.fits".format(direct, direct))
+    r90_file = fits.open("//Users//lewis//Desktop//Masters//Data//{} Data//cdwfs_{}_r90_4reb.fits".format(direct, direct))
+    expo_file = fits.open("//Users//lewis//Desktop//Masters//Data//{} Data//cdwfs_{}_expomap_4reb.fits".format(direct, direct))
+
+    r90_map = (r90_file[0].data)
+    
+    # Now do the same for each of the other variables
+
+    bkg_map = (bkg_file[0].data)
+    
+
+    expo_map = (expo_file[0].data)
+    expo_value = expo_map[X,Y]
+
+
+    img_map = (img_file[0].data)
+    img_value = img_map[X,Y]
+
+    ecf_map = (ecf_file[0].data)
+    ecf_value = ecf_map[X,Y]
+
+    
+def perform_photometry():
+
+    global spec_dat
+    spec_dat = [] # creates an empty list, which will contain a dictionary to fill with parameters
+    # spec_dat [{'broad'}, {'soft'}, {'hard'}]
+    
+    RadAGN = (t_R_full['AGN_final'] == 1) #short for Radiative
+    NotRadAGN = (t_R_full['AGN_final'] == 0)
+
+    RadioAGN = (t_R_full['RadioAGN_final'] == 1)
+    NotRadioAGN = (t_R_full['RadioAGN_final'] == 0)
+
+
+    
+    answer = ""
+    while answer not in ['Y','y','N','n']:
+        answer = input("Apply filter? (Y/N):") # asks again if answer is not satisfactory
+        
+    if answer in ['Y','y']:
+        #Filter = True
+        
+        mask = input("What group of sources would you like to filter out?(SFG, Radio_quiet, Jet_mode, Quasar_mode):")
+        
+        while mask not in ['SFG','sfg','SFGs','sfgs','Radio_quiet', 'radio_quiet','RQ', 'rq',
+                          'Jet_mode','jet_mode','JM','jm', 'Quasar_mode','quasar_mode','QM','qm']: # accounting for nonsense
+        
+            mask = input("Error: Choose one of the following: (SFG, Radio_quiet, Jet_mode, Quasar_mode):")
+        
+        #SFG = t_R_full[NotRadAGN * NotRadioAGN]
+        #Radio_quiet = t_R_full[RadAGN * NotRadioAGN]
+        #Jet_mode = t_R_full[NotRadAGN * RadioAGN]
+        #Quasar_mode = t_R_full[RadAGN * RadioAGN]
+
+        if mask in ['SFG','sfg','SFGs','sfgs']:
+            AGN_class = [NotRadAGN * NotRadioAGN]
+
+        elif mask in ['Radio_quiet', 'radio_quiet','RQ', 'rq']:
+            AGN_class = [RadAGN * NotRadioAGN]
+
+        elif mask in ['Jet_mode','jet_mode','JM','jm']:
+            AGN_class = [NotRadAGN * RadioAGN]
+
+        elif mask in ['Quasar_mode','quasar_mode','QM','qm']:
+            AGN_class = [RadAGN * RadioAGN]
+
+    else: 
+        #Filter = False
+        AGN_class = np.ones(np.size(t_R_full), dtype=bool) # mask full of True values
+        mask = "Full"
+
+    for direct in ['broad', 'soft', 'hard']:
+    #for direct in ['broad']:
+
+        # Retrieve the X,Y of the image data points
+        w = WCS(img_file[0].header)
+        worldcrd = np.array([t_R['RA'],t_R['DEC']]).T 
+
+        Y, X = np.array(w.wcs_world2pix(worldcrd, 1), dtype='int').T
+
+        '''Retrieve the value of r90 at each X, Y specified by the coords provided in t_R, conv. to wcs'''
+
+        r90_value = np.zeros(np.size(len(t_R_full[AGN_class])))
+        r90_value = r90_map[X,Y][AGN_class]
+        # Now do the same for each of the other variables
+
+        bkg_value = np.zeros(np.size(len(t_R_full[AGN_class])))
+        bkg_value = bkg_map[X,Y][AGN_class]
+
+        expo_value = np.zeros(np.size(len(t_R_full[AGN_class])))
+        expo_value = expo_map[X,Y][AGN_class]
+
+        img_value = np.zeros(np.size(len(t_R_full[AGN_class])))
+        img_value = img_map[X,Y][AGN_class]
+
+        ecf_value = np.zeros(np.size(len(t_R_full[AGN_class])))
+        ecf_value = ecf_map[X,Y][AGN_class]
+
+        # Initialise empty lists for the various parameters
+
+        CR = []
+        Flux = []
+
+        # empty lists for the variable values at each (X,Y) position
+        apertures = []
+        aperture_areas = []
+        cts = []
+        n_pix = []
+        bkg = []
+        t_expo = []
+        ecf = []
+
+        pix_to_deg = (img_file[0].header['CDELT2']*u.deg)
+
+        pix_to_deg.to(u.arcsec) # no of arcsec per pixel (i.e. pixel size in img)
+        pix_area = pix_to_deg.to(u.arcsec)**2 # area per pixel, in square arcsec
+        # no of pixels in the aperture is (area of aper)/(area per pix)
+
+        bad_expo = (expo_value < 1)
+
+        positions = SkyCoord(t_R['RA'][AGN_class],t_R['DEC'][AGN_class], unit='deg')
+        r90_value[bad_expo] = 1.0
+
+        # Want to perform aperture photometry on each (X,Y) posn with a uniquely defined aperture radius for each
+
+        print('Starting with the '+direct+' '+mask+' spectrum:')
+
+        for i,(r,p,b,t,e) in enumerate(zip(r90_value, positions, bkg_value, expo_value, ecf_value)):
+
+
+            bkg.append(b)
+            t_expo.append(t)
+            ecf.append(e)
+
+            aper = SkyCircularAperture(p, r*u.arcsec)
+            adat = aperture_photometry(img_map,aper,wcs=w)
+            apertures.append(aper)
+            aper_area = np.pi * (r*u.arcsec)**2
+            aperture_areas.append(aper_area)
+            pix_data = aper_area/pix_area # no. of pixels per aperture
+            n_pix.append(pix_data)
+
+            if i==0: # set up a table on the first loop
+                cts = adat # counts is the output of the aperture photometry, adat 
+            else: # for subsequent loops, add a row
+                cts.add_row(adat[0])
+            if i%1000==0: # progress bar
+                print(i)
+        
+        for i,(c,n,b,t,e) in enumerate(zip(cts['aperture_sum'], n_pix, bkg, t_expo, ecf)): #calculate the count rate and flux
+            
+            if i==0:
+                print("Aperture photometry has begun")
+            
+            Count_rate = (c - (n*b))/(0.9*t)
+            CR.append(Count_rate)
+
+            Flux.append(Count_rate*e)
+
+            
+
+            if i%1000==0:
+                print(i)
+
+        CR = np.array(CR)
+        Flux = np.array(Flux)
+
+        CR_notnan = CR[np.logical_not(np.isnan(CR))]
+        CR_nan = (np.isnan(CR))
+
+        Flux_notnan = (np.logical_not(np.isnan(Flux)))
+
+        flux_avg = np.mean(Flux[Flux_notnan])
+        
+        
+        r90_value = r90_value.byteswap().newbyteorder() # needed because the r90 parameter is very large, and this simplifies it
+        # Error that this solves: Big-endian buffer not supported on little-endian compiler
+            
+        dataframe = pd.DataFrame({"cts":cts, "count_sum":cts['aperture_sum'], "bkg":bkg, "ecf":ecf, "n_pix":n_pix, 
+                                  "t_expo":t_expo, "r90_value":r90_value})
+        #Lum_avg = (4*np.pi*(cosmo.luminosity_distance(t_R['Z_BEST'][AGN_class]))**2 *  flux_avg*u.jansky).to(u.W/u.Hz)
+        #spec_dat['Filter'] = mask 
+        spec_dat.append({"spectrum":direct,"Filter":mask, 'Class':AGN_class, 
+                          "data":dataframe,'flux_avg':flux_avg}) 
+        print('Done with the '+direct+' '+mask+' spectrum!')
+        # saves the counts in this file type (broad, soft, hard) IN THAT ORDER!!!
+        # also makes a dictionary and adds it to an empty list.
+        # Output 'cts' is a table of the counts from img(X,Y) with radius r90_value(X,Y)
+
+
